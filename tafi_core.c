@@ -24,6 +24,9 @@
 #include <linux/kthread.h>
 #include <linux/delay.h>
 
+// For kmalloc
+#include <linux/slab.h>
+
 #include "tafi_common.h"
 #include "tafi_ioctl.h"
 #include "tafi_bus.h"
@@ -166,7 +169,7 @@ struct task_struct *tafi_task;
  * Set the internal color data buffer contents.
  * Unsafe to call without bounds checking.
  */
-static void tafi_set_color_data(unsigned char *buf[TAFI_SECTOR_LED_COUNT][TAFI_LED_COLOR_FIELD_COUNT]) {
+static void tafi_set_color_data(void *buf) {
     mutex_lock(&tafi_color_data_mutex);
     memcpy(tafi_color_data_buf, buf, TAFI_DATA_BUF_LEN);
     tafi_color_data_dirty = true;
@@ -177,7 +180,7 @@ static void tafi_set_color_data(unsigned char *buf[TAFI_SECTOR_LED_COUNT][TAFI_L
  * Copy the color data buffer if dirty flag is set,
  * and clear the dirty flag.
  */
-static bool tafi_cpy_data_and_reset_if_dirty(unsigned char *buf[TAFI_SECTOR_LED_COUNT][TAFI_LED_COLOR_FIELD_COUNT]) {
+static bool tafi_cpy_data_and_reset_if_dirty(void *buf) {
     int ret = false;
     mutex_lock(&tafi_color_data_mutex);
     if (tafi_color_data_dirty) {
@@ -193,7 +196,13 @@ static int tafi_thread(void *data) {
     
     // Internal buffer used to write the data to SPI.
     // Stops blocking the actual buffer.
-    unsigned char buf[TAFI_SECTOR_COUNT][TAFI_SECTOR_LED_COUNT][TAFI_LED_COLOR_FIELD_COUNT]; 
+    void *buf;
+
+    buf = kmalloc(TAFI_DATA_BUF_LEN, GFP_KERNEL);
+    if (buf == NULL) {
+        printk(KERN_ERR TAFI_LOG_PREFIX"failed to allocate memory for internal display buffer.");
+        return -ENOMEM;
+    }
 
     printk(KERN_INFO TAFI_LOG_PREFIX"thread running.");
 
@@ -206,6 +215,8 @@ static int tafi_thread(void *data) {
         }
         usleep_range(15000, 25000);
     }
+
+    kfree(buf);
 
     printk(KERN_INFO TAFI_LOG_PREFIX"thread returning.");
     return 0;
@@ -268,7 +279,12 @@ static int __init tafi_init(void) {
     }
 
     // start thread
-    tafi_thread_init();
+    ret = tafi_thread_init();
+    if (ret < 0) {
+        tafi_gpio_exit();
+        tafi_spi_exit();
+        return ret;
+    }
 
     // create sysfs ctl device
     // init FB (maybe)
