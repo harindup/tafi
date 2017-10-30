@@ -50,14 +50,14 @@ void tafi_gpio_exit(void) {
 /**
  * Set the frame pin to high, and signal the start of a frame.
  */
-void tafi_frame_begin(void) {
+inline void tafi_frame_begin(void) {
     gpio_set_value(TAFI_GPIO_FRAME_START_PIN, 1);
 }
 
 /**
  * Set the frame pin to low, and signal the end of a frame.
  */
-void tafi_frame_end(void) {
+inline void tafi_frame_end(void) {
     gpio_set_value(TAFI_GPIO_FRAME_START_PIN, 0);
 } 
 
