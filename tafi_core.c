@@ -197,9 +197,9 @@ static int tafi_thread(void *data) {
         //     spi_write(tafi_spi_device, &BUF[i%5], TAFI_SECTOR_BUF_LEN);
         //     i++;
         // }
-        tafi_data_write(&buf, TAFI_DATA_BUF_LEN);
+        //tafi_data_write(&buf, TAFI_DATA_BUF_LEN);
         tafi_frame_end();
-        msleep(25);
+       // msleep(25);
     }
     printk(KERN_INFO TAFI_LOG_PREFIX"thread returning.");
     return 0;
