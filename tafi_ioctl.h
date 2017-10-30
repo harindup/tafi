@@ -11,6 +11,9 @@
 
 #include <linux/types.h>
 
+#ifndef TAFI_IOCTL
+#define TAFI_IOCTL
+
 #define TAFI_SECTOR_COUNT 150
 #define TAFI_SECTOR_LED_COUNT 20
 #define TAFI_LED_COLOR_FIELD_COUNT 3
@@ -20,3 +23,4 @@
 // static int tafi_write_frame(void * buf);
 
 // static int tafi_read_frame(void *buf);
+#endif

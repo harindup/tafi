@@ -1,5 +1,6 @@
 /**
  *  tafi.c -- The Amazing Fan Idea driver
+ *  Main module code with thread and ioctl code.
  * 
  *      (C) 2017 Harindu Perera
  *  
@@ -11,8 +12,6 @@
 // Basic kernel module headers
 #include <linux/init.h>
 #include <linux/module.h>
-#include <linux/kernel.h>
-#include <linux/device.h>
 #include <linux/mutex.h>
 
 // GPIO header
@@ -25,24 +24,9 @@
 #include <linux/kthread.h>
 #include <linux/delay.h>
 
+#include "tafi_log.h"
 #include "tafi_ioctl.h"
-
-#define TAFI_LOG_PREFIX "Desperate Housewife: "
-
-#define TAFI_DRIVER_NAME "tafi"
-#define TAFI_DESCRIPTION "The Amazing Fan Idea PoV Display Driver"
-#define TAFI_AUTHOR "Harindu Perera <r.a.h.perera@student.utwente.nl>"
-#define TAFI_LICENSE "GPL v2"
-
-// GPIO pin for sending the frame start/end signal
-#define TAFI_GPIO_FRAME_START_PIN 17
-
-// SPI settings
-#define TAFI_SPI_BUS_NUM 0
-#define TAFI_SPI_BUS_SPEED_HZ 10000000 // 10 MHz
-#define TAFI_SPI_CHIP_SELECT 0
-#define TAFI_SPI_MODE SPI_MODE_0
-#define TAFI_SPI_BITS_PER_WORD 8
+#include "tafi_bus.h"
 
 // Thread settings
 #define TAFI_KTHREAD_NAME "tafi_main"
@@ -160,115 +144,6 @@ static unsigned char BUF[5][TAFI_SECTOR_LED_COUNT][TAFI_LED_COLOR_FIELD_COUNT] =
         {128, 128, 128},
     }
 };
-
-/**
- * Initialize GPIO pins for use.
- */
-static void tafi_gpio_init(void) {
-  
-  printk(KERN_INFO TAFI_LOG_PREFIX"starting GPIO...");
-  
-  // init GPIO pin for frame signal
-  gpio_request(TAFI_GPIO_FRAME_START_PIN, "TAFI_GPIO_FRAME_START_PIN");
-  gpio_direction_output(TAFI_GPIO_FRAME_START_PIN, 0);
-  gpio_set_value(TAFI_GPIO_FRAME_START_PIN, 0);
-
-  printk(KERN_INFO TAFI_LOG_PREFIX"started GPIO.");
-}
-
-/**
- * De-initialize the GPIO pins before exit.
- */
-static void tafi_gpio_exit(void) {
-    printk(KERN_INFO TAFI_LOG_PREFIX"stopping GPIO...");
-    gpio_free(TAFI_GPIO_FRAME_START_PIN);
-    printk(KERN_INFO TAFI_LOG_PREFIX"stopping GPIO.");
-}
-
-static void tafi_begin_frame(void) {
-    gpio_set_value(TAFI_GPIO_FRAME_START_PIN, 1);
-}
-
-static void tafi_end_frame(void) {
-    gpio_set_value(TAFI_GPIO_FRAME_START_PIN, 0);
-} 
-
-
-// SPI
-
-// The global SPI device
-static struct spi_device *tafi_spi_device;
-
-/**
- * Initializes SPI device.
- */
-static int tafi_spi_init(void) {
-    
-    int ret;
-    struct spi_master *master;
-    struct device *temp_device;
-    char temp_device_buf[20];
-
-    printk(KERN_INFO TAFI_LOG_PREFIX"starting SPI...");
-
-    master = spi_busnum_to_master(TAFI_SPI_BUS_NUM);
-    if (!master) {
-        printk(KERN_INFO TAFI_LOG_PREFIX"SPI master init failed.");
-        return -ENODEV;
-    }
-
-    tafi_spi_device = spi_alloc_device(master);
-    if (!tafi_spi_device) {
-        put_device(&master->dev);
-        printk(KERN_INFO TAFI_LOG_PREFIX"SPI device alloc failed.");
-        return -ENODEV;
-    }
-  
-    tafi_spi_device->chip_select = TAFI_SPI_CHIP_SELECT;
-    snprintf(temp_device_buf, sizeof(temp_device_buf), "%s.%u", dev_name(&tafi_spi_device->master->dev), tafi_spi_device->chip_select);
-  
-    // Attempt to find the device, and if found hijack it.
-    temp_device = bus_find_device_by_name(tafi_spi_device->dev.bus, NULL, temp_device_buf);
-    if (temp_device) {
-        printk(KERN_INFO TAFI_LOG_PREFIX"found other SPI device (probably spidev), forcing removal.");
-        spi_unregister_device(to_spi_device(temp_device));
-        spi_dev_put(to_spi_device(temp_device));
-    }
-
-    tafi_spi_device->max_speed_hz = TAFI_SPI_BUS_SPEED_HZ;
-    tafi_spi_device->mode = TAFI_SPI_MODE;
-    tafi_spi_device->bits_per_word = TAFI_SPI_BITS_PER_WORD;
-    tafi_spi_device->irq = -1;
-    tafi_spi_device->controller_state = NULL;
-    tafi_spi_device->controller_data = NULL;
-    strcpy(tafi_spi_device->modalias, TAFI_DRIVER_NAME);
-
-    tafi_spi_device->bits_per_word = TAFI_SPI_BITS_PER_WORD;
-
-    ret = spi_add_device(tafi_spi_device);
-    if (ret < 0) {
-        printk(KERN_INFO TAFI_LOG_PREFIX"SPI device setup failed.");
-        spi_dev_put(tafi_spi_device);
-        put_device(&master->dev);
-        return -ENODEV;
-    }
-
-    printk(KERN_INFO TAFI_LOG_PREFIX"SPI started.");
-    return 0;
-}
-
-/**
- * De-initialize SPI device.
- */
-static void tafi_spi_exit(void) {
-    printk(KERN_INFO TAFI_LOG_PREFIX"stopping SPI...");
-    if (tafi_spi_device) {
-        spi_dev_put(tafi_spi_device);
-    } else {
-        printk(KERN_INFO TAFI_LOG_PREFIX"SPI device not found.");
-    }
-    printk(KERN_INFO TAFI_LOG_PREFIX"stopped SPI.");
-}
 
 // Thread and timer
 
