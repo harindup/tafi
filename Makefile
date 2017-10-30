@@ -1,6 +1,6 @@
 TARGET = tafi
 
-obj-m += $(TARGET).o
+obj-m := $(TARGET).o
 
 tafi-objs := tafi_bus.o
 
