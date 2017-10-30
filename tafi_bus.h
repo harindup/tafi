@@ -9,15 +9,6 @@
  *  more details.
  */
 
-// Linux header info
-#include <linux/device.h>
-
-// GPIO header
-#include <linux/gpio.h>
-
-// SPI header
-#include <linux/spi/spi.h>
-
 #ifndef TAFI_BUS
 #define TAFI_BUS
 
