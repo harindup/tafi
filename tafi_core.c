@@ -180,7 +180,7 @@ static void tafi_set_color_data(unsigned char *buf) {
 static bool tafi_cpy_data_and_reset_if_dirty(unsigned char *buf) {
     int ret = false;
     mutex_lock(&tafi_color_data_mutex);
-    if (dirty) {
+    if (tafi_color_data_dirty) {
         memcpy(buf, tafi_color_data_buf, TAFI_DATA_BUF_LEN);
         tafi_color_data_dirty = false;
         ret = true;
@@ -199,9 +199,9 @@ static int tafi_thread(void *data) {
 
     // check if the thread should stop
     while (!kthread_should_stop()) {
-        if (tafi_cpy_data_and_reset_if_dirty(&buf)) {
+        if (tafi_cpy_data_and_reset_if_dirty(buf)) {
             tafi_frame_begin();
-            tafi_data_write(&buf, TAFI_DATA_BUF_LEN);
+            tafi_data_write(buf, TAFI_DATA_BUF_LEN);
             tafi_frame_end();
         }
         usleep_range(15000, 25000);
