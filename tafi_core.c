@@ -167,17 +167,17 @@ static int tafi_thread(void *data) {
     unsigned char buf[TAFI_SECTOR_COUNT][TAFI_SECTOR_LED_COUNT][TAFI_LED_COLOR_FIELD_COUNT];
     bool dirty = true;
 
-    while (i < TAFI_SECTOR_COUNT) {
-        j = 0;
-        while (j < TAFI_SECTOR_LED_COUNT) {
-            k = 0;
-            while (k < TAFI_LED_COLOR_FIELD_COUNT) {
-                buf[i][j][k] = BUF[i][j][k];
-            }
-            j++;
-        }
-        i++;
-    }
+    // while (i < TAFI_SECTOR_COUNT) {
+    //     j = 0;
+    //     while (j < TAFI_SECTOR_LED_COUNT) {
+    //         k = 0;
+    //         while (k < TAFI_LED_COLOR_FIELD_COUNT) {
+    //             buf[i][j][k] = BUF[i][j][k];
+    //         }
+    //         j++;
+    //     }
+    //     i++;
+    // }
 
     printk(KERN_INFO TAFI_LOG_PREFIX"thread running.");
     while (!kthread_should_stop()) {
@@ -199,7 +199,7 @@ static int tafi_thread(void *data) {
         // }
         //tafi_data_write(&buf, TAFI_DATA_BUF_LEN);
         // tafi_frame_end();
-        printk(KERN_INFO TAFI_LOG_PREFIX"loop");
+        // printk(KERN_INFO TAFI_LOG_PREFIX"loop");
         usleep_range(15000, 25000);
     }
     printk(KERN_INFO TAFI_LOG_PREFIX"thread returning.");
