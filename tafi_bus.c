@@ -26,7 +26,7 @@
 /**
  * Initialize GPIO pins for use.
  */
-static void tafi_gpio_init(void) {
+void tafi_gpio_init(void) {
   
   printk(KERN_INFO TAFI_LOG_PREFIX"starting GPIO...");
   
@@ -41,7 +41,7 @@ static void tafi_gpio_init(void) {
 /**
  * De-initialize the GPIO pins before exit.
  */
-static void tafi_gpio_exit(void) {
+void tafi_gpio_exit(void) {
     printk(KERN_INFO TAFI_LOG_PREFIX"stopping GPIO...");
     gpio_free(TAFI_GPIO_FRAME_START_PIN);
     printk(KERN_INFO TAFI_LOG_PREFIX"stopping GPIO.");
@@ -50,14 +50,14 @@ static void tafi_gpio_exit(void) {
 /**
  * Set the frame pin to high, and signal the start of a frame.
  */
-static void tafi_frame_begin(void) {
+void tafi_frame_begin(void) {
     gpio_set_value(TAFI_GPIO_FRAME_START_PIN, 1);
 }
 
 /**
  * Set the frame pin to low, and signal the end of a frame.
  */
-static void tafi_frame_end(void) {
+void tafi_frame_end(void) {
     gpio_set_value(TAFI_GPIO_FRAME_START_PIN, 0);
 } 
 
