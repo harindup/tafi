@@ -17,7 +17,7 @@
 /**
  * Initialize GPIO pins for use.
  */
-static void tafi_gpio_init(void) {
+void tafi_gpio_init(void) {
   
   printk(KERN_INFO TAFI_LOG_PREFIX"starting GPIO...");
   
@@ -32,7 +32,7 @@ static void tafi_gpio_init(void) {
 /**
  * De-initialize the GPIO pins before exit.
  */
-static void tafi_gpio_exit(void) {
+void tafi_gpio_exit(void) {
     printk(KERN_INFO TAFI_LOG_PREFIX"stopping GPIO...");
     gpio_free(TAFI_GPIO_FRAME_START_PIN);
     printk(KERN_INFO TAFI_LOG_PREFIX"stopping GPIO.");
@@ -41,14 +41,14 @@ static void tafi_gpio_exit(void) {
 /**
  * Set the frame pin to high, and signal the start of a frame.
  */
-static void tafi_frame_begin(void) {
+void tafi_frame_begin(void) {
     gpio_set_value(TAFI_GPIO_FRAME_START_PIN, 1);
 }
 
 /**
  * Set the frame pin to low, and signal the end of a frame.
  */
-static void tafi_frame_end(void) {
+void tafi_frame_end(void) {
     gpio_set_value(TAFI_GPIO_FRAME_START_PIN, 0);
 } 
 
@@ -63,7 +63,7 @@ static struct spi_device *tafi_spi_device;
  * TODO: fix the hijacking voodoo mess, and ensure removal
  * of the default spidev beforehand.
  */
-static int tafi_spi_init(void) {
+int tafi_spi_init(void) {
     
     int ret;
     struct spi_master *master;
@@ -121,7 +121,7 @@ static int tafi_spi_init(void) {
 /**
  * De-initialize SPI device.
  */
-static void tafi_spi_exit(void) {
+void tafi_spi_exit(void) {
     printk(KERN_INFO TAFI_LOG_PREFIX"stopping SPI...");
     if (tafi_spi_device) {
         spi_dev_put(tafi_spi_device);
@@ -136,6 +136,6 @@ static void tafi_spi_exit(void) {
  * Note that it is useless to call this unless a frame begin has been
  * via the GPIO command.
  */
-static inline int tafi_data_write(const void *buf, size_t len) {
+inline int tafi_data_write(const void *buf, size_t len) {
     return spi_write(tafi_spi_device, buf, len);
 }
