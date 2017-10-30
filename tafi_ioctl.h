@@ -20,7 +20,8 @@
 #define TAFI_SECTOR_BUF_LEN TAFI_SECTOR_LED_COUNT * TAFI_LED_COLOR_FIELD_COUNT
 #define TAFI_DATA_BUF_LEN TAFI_SECTOR_COUNT * TAFI_SECTOR_BUF_LEN
 
-// static int tafi_write_frame(void * buf);
+int tafi_write_frame(void * buf);
 
-// static int tafi_read_frame(void *buf);
+int tafi_read_frame(void *buf);
+
 #endif

@@ -147,6 +147,7 @@ static unsigned char BUF[5][TAFI_SECTOR_LED_COUNT][TAFI_LED_COLOR_FIELD_COUNT] =
 
 // Thread and timer
 
+////////// DO NOT MANIPULATE THE VARIABLES BELOW DIRECTLY ////////////////
 // Global array for color data to be sent to LEDs.
 static unsigned char tafi_color_data_buf[TAFI_SECTOR_COUNT][TAFI_SECTOR_LED_COUNT][TAFI_LED_COLOR_FIELD_COUNT];
 
@@ -156,42 +157,56 @@ static bool tafi_color_data_dirty;
 // Mutex to control access to color data buffer and the dirty flag.
 static struct mutex tafi_color_data_mutex;
 
+////////// DO NOT MANIPULATE THE VARIABLES ABOVE DIRECTLY ////////////////
+
 // The global task.
 struct task_struct *tafi_task;
 
-static int tafi_thread(void *data) {
-    // unsigned char B = 0;
-    int i = 0;
-    int j = 0;
-    int k = 0;
-    unsigned char buf[TAFI_SECTOR_COUNT][TAFI_SECTOR_LED_COUNT][TAFI_LED_COLOR_FIELD_COUNT];
-    bool dirty = true;
+/**
+ * Set the internal color data buffer contents.
+ * Unsafe to call without bounds checking.
+ */
+static void tafi_set_color_data(unsigned char *buf) {
+    mutex_lock(&tafi_color_data_mutex);
+    memcpy(tafi_color_data_buf, buf, TAFI_DATA_BUF_LEN);
+    tafi_color_data_dirty = true;
+    mutex_unlock(&tafi_color_data_mutex);
+}
 
-    memcpy(buf, BUF, TAFI_DATA_BUF_LEN);
+/**
+ * Copy the color data buffer if dirty flag is set,
+ * and clear the dirty flag.
+ */
+static bool tafi_cpy_data_and_reset_if_dirty(unsigned char *buf) {
+    int ret = false;
+    mutex_lock(&tafi_color_data_mutex);
+    if (dirty) {
+        memcpy(buf, tafi_color_data_buf, TAFI_DATA_BUF_LEN);
+        tafi_color_data_dirty = false;
+        ret = true;
+    }
+    mutex_unlock(&tafi_color_data_mutex);
+    return ret;
+}
+
+static int tafi_thread(void *data) {
+    
+    // Internal buffer used to write the data to SPI.
+    // Stops blocking the actual buffer.
+    unsigned char buf[TAFI_SECTOR_COUNT][TAFI_SECTOR_LED_COUNT][TAFI_LED_COLOR_FIELD_COUNT]; 
 
     printk(KERN_INFO TAFI_LOG_PREFIX"thread running.");
-    while (!kthread_should_stop()) {
-        // B = 0;
-        // spi_write(tafi_spi_device, &B, 1);
-        // spi_write(tafi_spi_device, BUF[i], 20*3);
-        // B = 128;
-        // spi_write(tafi_spi_device, &B, 1);
-        // i++;
-        // i = i%5;
-        // msleep(1);
 
-        //mutex_acquire(&tafi_color_data_mutex);
-        tafi_frame_begin();
-        // i = 0;
-        // while (i < TAFI_SECTOR_COUNT) {
-        //     spi_write(tafi_spi_device, &BUF[i%5], TAFI_SECTOR_BUF_LEN);
-        //     i++;
-        // }
-        //tafi_data_write(&buf, TAFI_DATA_BUF_LEN);
-         tafi_frame_end();
-        // printk(KERN_INFO TAFI_LOG_PREFIX"loop");
+    // check if the thread should stop
+    while (!kthread_should_stop()) {
+        if (tafi_cpy_data_and_reset_if_dirty(&buf)) {
+            tafi_frame_begin();
+            tafi_data_write(&buf, TAFI_DATA_BUF_LEN);
+            tafi_frame_end();
+        }
         usleep_range(15000, 25000);
     }
+
     printk(KERN_INFO TAFI_LOG_PREFIX"thread returning.");
     return 0;
 }
@@ -225,6 +240,7 @@ static void tafi_thread_exit(void) {
 static int __init tafi_init(void) {
 
     int ret;
+    int i = 0;
 
     printk(KERN_INFO TAFI_LOG_PREFIX"staring...");
     // stuff to do
@@ -240,6 +256,15 @@ static int __init tafi_init(void) {
     if (ret < 0) {
         tafi_gpio_exit();
         return ret;
+    }
+
+    // init the initial data buffer
+    // this serves as a diagnostic screen as well as a security measure
+    // to prevent kernel space memory leaking into user space via an 
+    // initial read of the buffer.
+    while (i < TAFI_SECTOR_COUNT) {
+        memcpy(tafi_color_data_buf[i], BUF[i%5], TAFI_SECTOR_BUF_LEN);
+        i++;
     }
 
     // start thread
