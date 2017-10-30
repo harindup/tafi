@@ -9,9 +9,6 @@
  *  more details.
  */
 
-#ifndef TAFI_BUS
-#define TAFI_BUS
-
 // Linux header info
 #include <linux/device.h>
 
@@ -20,6 +17,9 @@
 
 // SPI header
 #include <linux/spi/spi.h>
+
+#ifndef TAFI_BUS
+#define TAFI_BUS
 
 // GPIO pin for sending the frame start/end signal
 #define TAFI_GPIO_FRAME_START_PIN 17
