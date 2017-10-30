@@ -166,7 +166,7 @@ struct task_struct *tafi_task;
  * Set the internal color data buffer contents.
  * Unsafe to call without bounds checking.
  */
-static void tafi_set_color_data(unsigned char *buf) {
+static void tafi_set_color_data(unsigned char *buf[TAFI_SECTOR_LED_COUNT][TAFI_LED_COLOR_FIELD_COUNT]) {
     mutex_lock(&tafi_color_data_mutex);
     memcpy(tafi_color_data_buf, buf, TAFI_DATA_BUF_LEN);
     tafi_color_data_dirty = true;
@@ -177,7 +177,7 @@ static void tafi_set_color_data(unsigned char *buf) {
  * Copy the color data buffer if dirty flag is set,
  * and clear the dirty flag.
  */
-static bool tafi_cpy_data_and_reset_if_dirty(unsigned char *buf) {
+static bool tafi_cpy_data_and_reset_if_dirty(unsigned char *buf[TAFI_SECTOR_LED_COUNT][TAFI_LED_COLOR_FIELD_COUNT]) {
     int ret = false;
     mutex_lock(&tafi_color_data_mutex);
     if (tafi_color_data_dirty) {
