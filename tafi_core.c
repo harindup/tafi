@@ -191,15 +191,15 @@ static int tafi_thread(void *data) {
         // msleep(1);
 
         //mutex_acquire(&tafi_color_data_mutex);
-        tafi_frame_begin();
-        i = 0;
+        // tafi_frame_begin();
+        // i = 0;
         // while (i < TAFI_SECTOR_COUNT) {
         //     spi_write(tafi_spi_device, &BUF[i%5], TAFI_SECTOR_BUF_LEN);
         //     i++;
         // }
         //tafi_data_write(&buf, TAFI_DATA_BUF_LEN);
-        tafi_frame_end();
-       // msleep(25);
+        // tafi_frame_end();
+        msleep(100);
     }
     printk(KERN_INFO TAFI_LOG_PREFIX"thread returning.");
     return 0;
