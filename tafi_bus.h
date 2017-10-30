@@ -15,13 +15,13 @@
 // GPIO pin for sending the frame start/end signal
 #define TAFI_GPIO_FRAME_START_PIN 17
 
-extern void tafi_gpio_init(void);
+static void tafi_gpio_init(void);
 
-extern void tafi_gpio_exit(void);
+static void tafi_gpio_exit(void);
 
-extern void tafi_frame_begin(void);
+static void tafi_frame_begin(void);
 
-extern void tafi_frame_end(void);
+static void tafi_frame_end(void);
 
 // SPI settings
 #define TAFI_SPI_BUS_NUM 0
