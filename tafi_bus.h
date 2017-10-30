@@ -19,9 +19,9 @@ extern void tafi_gpio_init(void);
 
 extern void tafi_gpio_exit(void);
 
-extern inline void tafi_frame_begin(void);
+extern void tafi_frame_begin(void);
 
-extern inline void tafi_frame_end(void);
+extern void tafi_frame_end(void);
 
 // SPI settings
 #define TAFI_SPI_BUS_NUM 0
