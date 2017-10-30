@@ -24,7 +24,7 @@
 #include <linux/kthread.h>
 #include <linux/delay.h>
 
-#include "tafi_log.h"
+#include "tafi_common.h"
 #include "tafi_ioctl.h"
 #include "tafi_bus.h"
 

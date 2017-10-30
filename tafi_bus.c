@@ -9,7 +9,7 @@
  *  more details.
  */
 
-#include "tafi_log.h"
+#include "tafi_common.h"
 #include "tafi_bus.h"
 
 // GPIO
