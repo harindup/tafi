@@ -199,7 +199,7 @@ static int tafi_thread(void *data) {
         // }
         //tafi_data_write(&buf, TAFI_DATA_BUF_LEN);
         // tafi_frame_end();
-        msleep(100);
+        usleep_range(15000, 25000);
     }
     printk(KERN_INFO TAFI_LOG_PREFIX"thread returning.");
     return 0;
