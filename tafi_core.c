@@ -181,14 +181,14 @@ static void tafi_set_color_data(void *buf) {
  * and clear the dirty flag.
  */
 static bool tafi_cpy_data_and_reset_if_dirty(void *buf) {
-    int ret = false;
-    mutex_lock(&tafi_color_data_mutex);
-    if (tafi_color_data_dirty) {
+    bool ret = false;
+    //mutex_lock(&tafi_color_data_mutex);
+    //if (tafi_color_data_dirty) {
         memcpy(buf, tafi_color_data_buf, TAFI_DATA_BUF_LEN);
-        tafi_color_data_dirty = false;
+        // tafi_color_data_dirty = false;
         ret = true;
-    }
-    mutex_unlock(&tafi_color_data_mutex);
+    //}
+    //mutex_unlock(&tafi_color_data_mutex);
     return ret;
 }
 
