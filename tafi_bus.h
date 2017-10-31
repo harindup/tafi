@@ -13,7 +13,7 @@
 #define TAFI_BUS
 
 // GPIO pin for sending the frame start/end signal
-#define TAFI_GPIO_FRAME_START_PIN 17
+#define TAFI_GPIO_FRAME_START_PIN 7
 
 void tafi_gpio_init(void);
 
