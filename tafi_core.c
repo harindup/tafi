@@ -30,6 +30,7 @@
 #include "tafi_common.h"
 #include "tafi_ioctl.h"
 #include "tafi_bus.h"
+#include "tafi_chardev.h"
 
 // Thread settings
 #define TAFI_KTHREAD_NAME "tafi_main"
@@ -126,9 +127,9 @@ struct task_struct *tafi_task;
  * Set the internal color data buffer contents.
  * Unsafe to call without bounds checking.
  */
-static void tafi_set_color_data(void *buf) {
+void tafi_set_color_data(void *buf, size_t len, loff_t offset) {
     mutex_lock(&tafi_color_data_mutex);
-    memcpy(tafi_color_data_buf, buf, TAFI_DATA_BUF_LEN);
+    memcpy(tafi_color_data_buf+offset, buf, len);
     tafi_color_data_dirty = true;
     mutex_unlock(&tafi_color_data_mutex);
 }
@@ -139,15 +140,28 @@ static void tafi_set_color_data(void *buf) {
  */
 static bool tafi_cpy_data_and_reset_if_dirty(void *buf) {
     bool ret = false;
-    //mutex_lock(&tafi_color_data_mutex);
-    //if (tafi_color_data_dirty) {
+
+    mutex_lock(&tafi_color_data_mutex);
+    if (tafi_color_data_dirty) {
         memcpy(buf, tafi_color_data_buf, TAFI_DATA_BUF_LEN);
-        //tafi_color_data_dirty = false;
+        tafi_color_data_dirty = false;
         ret = true;
-    //}
-    //mutex_unlock(&tafi_color_data_mutex);
+    }
+    mutex_unlock(&tafi_color_data_mutex);
     return ret;
 }
+
+/**
+ * Copy the color data buffer.
+ * Unsafe to call without bounds checking.
+ */
+void tafi_get_color_data(void *buf, size_t len, loff_t offset) {
+    mutex_lock(&tafi_color_data_mutex);
+    memcpy(buf, tafi_color_data_buf+offset, len);
+    mutex_unlock(&tafi_color_data_mutex);
+}
+
+
 
 static int tafi_thread(void *data) {
     
@@ -221,9 +235,6 @@ static int __init tafi_init(void) {
     printk(KERN_INFO TAFI_LOG_PREFIX"staring...");
     // stuff to do
 
-    // init mutex
-    mutex_init(&tafi_color_data_mutex);
-
     // init GPIO
     tafi_gpio_init();
 
@@ -243,11 +254,25 @@ static int __init tafi_init(void) {
         i++;
     }
 
+    // init mutex
+    mutex_init(&tafi_color_data_mutex);
+
     // start thread
     ret = tafi_thread_init();
     if (ret < 0) {
         tafi_gpio_exit();
         tafi_spi_exit();
+         mutex_destroy(&tafi_color_data_mutex);
+        return ret;
+    }
+
+    // init chardev
+    ret = tafi_chardev_init();
+     if (ret < 0) {
+        tafi_gpio_exit();
+        tafi_spi_exit();
+        tafi_thread_exit();
+         mutex_destroy(&tafi_color_data_mutex);
         return ret;
     }
 
@@ -263,6 +288,8 @@ static int __init tafi_init(void) {
 static void __exit tafi_exit(void) {
     printk(KERN_INFO TAFI_LOG_PREFIX"stopping...");
     // stuff to do
+    tafi_chardev_exit();
+
     // stop thread
     tafi_thread_exit();
 
@@ -271,6 +298,9 @@ static void __exit tafi_exit(void) {
 
     // de-init SPI device
     tafi_spi_exit();
+
+    // delete mutex
+    mutex_destroy(&tafi_color_data_mutex);
 
     // remove sysfs ctl device
     // de-init FB (maybe)
