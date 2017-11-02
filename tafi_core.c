@@ -31,6 +31,7 @@
 #include "tafi_ioctl.h"
 #include "tafi_bus.h"
 #include "tafi_chardev.h"
+#include "tafi_fb.h"
 
 // Thread settings
 #define TAFI_KTHREAD_NAME "tafi_main"
@@ -250,7 +251,14 @@ static int __init tafi_init(void) {
     // to prevent kernel space memory leaking into user space via an 
     // initial read of the buffer.
     while (i < TAFI_SECTOR_COUNT) {
-        memcpy(tafi_color_data_buf[i], BUF[i%3], TAFI_SECTOR_BUF_LEN);
+        if (i < 50) {
+            memcpy(tafi_color_data_buf[i], BUF[0], TAFI_SECTOR_BUF_LEN);
+        } else if (i < 100) {
+            memcpy(tafi_color_data_buf[i], BUF[1], TAFI_SECTOR_BUF_LEN);
+        }
+         else {
+            memcpy(tafi_color_data_buf[i], BUF[2], TAFI_SECTOR_BUF_LEN);
+        }
         i++;
     }
 
@@ -272,7 +280,17 @@ static int __init tafi_init(void) {
         tafi_gpio_exit();
         tafi_spi_exit();
         tafi_thread_exit();
-         mutex_destroy(&tafi_color_data_mutex);
+        mutex_destroy(&tafi_color_data_mutex);
+        return ret;
+    }
+
+    ret = tafi_fb_init();
+    if (ret < 0) {
+        tafi_chardev_exit();
+        tafi_gpio_exit();
+        tafi_spi_exit();
+        tafi_thread_exit();
+        mutex_destroy(&tafi_color_data_mutex);
         return ret;
     }
 

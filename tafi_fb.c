@@ -26,9 +26,8 @@
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
 
-#include <linux/fb.h>
-
 #include "tafi_ioctl.h"
+#include "tafi_fb.h"
     /*
      *  RAM we reserve for the frame buffer. This defines the maximum screen
      *  size
@@ -36,18 +35,12 @@
      *  The default can be overridden if the driver is compiled as a module
      */
 
-#define VIDEOMEMSIZE	(1*1024*1024)	/* 1 MB */
+#define VIDEOMEMSIZE	(1024*1024)	/* 1 MB */
 
 static void *videomemory;
 static u_long videomemorysize = VIDEOMEMSIZE;
-module_param(videomemorysize, ulong, 0);
-MODULE_PARM_DESC(videomemorysize, "RAM available to frame buffer (in bytes)");
 
-static char *mode_option = NULL;
-module_param(mode_option, charp, 0);
-MODULE_PARM_DESC(mode_option, "Preferred video mode (e.g. 640x480-8@60)");
-
-gpio_device
+static struct platform_device *tafi_fb_device;
 
 static const struct fb_videomode tafi_fb_default = {
 	.xres =		40,
@@ -56,9 +49,36 @@ static const struct fb_videomode tafi_fb_default = {
 	.right_margin =	0,
 	.upper_margin =	0,
 	.lower_margin =	0,
-	.hsync_len =	24,
-	.vsync_len =	2,
 	.vmode =	FB_VMODE_NONINTERLACED,
+};
+
+static struct fb_var_screeninfo tafi_fb_var = {
+	.xres =		40,
+	.yres =		40,
+	.xres_virtual = 40,
+	.yres_virtual = 40,
+	.bits_per_pixel = 24,
+	.nonstd = 1,
+	.red =  {
+		.offset = 8,
+		.length = 8,
+		.msb_right = 0,
+	},
+	.green = {
+		.offset = 1,
+		.length = 8,
+		.msb_right = 0,
+	},
+	.blue = {
+		.offset = 16,
+		.length = 8,
+		.msb_right = 0,
+	},
+	.transp = {
+		.offset = 0,
+		.length = 0,
+		.msb_right = 0,
+	},
 };
 
 static struct fb_fix_screeninfo tafi_fb_fix = {
@@ -70,10 +90,6 @@ static struct fb_fix_screeninfo tafi_fb_fix = {
 	.ywrapstep = 0,
 	.accel =	FB_ACCEL_NONE,
 };
-
-static bool tafi_fb_enable __initdata = 0;	/* disabled by default */
-module_param(tafi_fb_enable, bool, 0);
-MODULE_PARM_DESC(tafi_fb_enable, "Enable Desperate Housewife FB driver");
 
 static int tafi_fb_check_var(struct fb_var_screeninfo *var,
 			 struct fb_info *info);
@@ -88,7 +104,7 @@ static int tafi_fb_mmap(struct fb_info *info,
 static struct fb_ops tafi_fb_ops = {
 	.fb_read        = fb_sys_read,
 	.fb_write       = fb_sys_write,
-	.fb_check_var	= tafi_fb_check_var,
+//	.fb_check_var	= tafi_fb_check_var,
 	.fb_set_par	= tafi_fb_set_par,
 	.fb_setcolreg	= tafi_fb_setcolreg,
 	.fb_pan_display	= tafi_fb_pan_display,
@@ -98,9 +114,9 @@ static struct fb_ops tafi_fb_ops = {
 	.fb_mmap	= tafi_fb_mmap,
 };
 
-    /*
-     *  Internal routines
-     */
+/*
+ *  Internal routines
+ */
 
 static u_long get_line_length(int xres_virtual, int bpp)
 {
@@ -120,9 +136,7 @@ static u_long get_line_length(int xres_virtual, int bpp)
      *  data from it to check this var. 
      */
 
-static int tafi_fb_check_var(struct fb_var_screeninfo *var,
-			 struct fb_info *info)
-{
+static int tafi_fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info) {
 	u_long line_length;
 
 	/*
@@ -139,25 +153,16 @@ static int tafi_fb_check_var(struct fb_var_screeninfo *var,
 	/*
 	 *  Some very basic checks
 	 */
-	if (!var->xres)
-		var->xres = 1;
-	if (!var->yres)
+	if (var->xres != 40)
+		var->xres = 40;
+	if (var->yres != 40)
 		var->yres = 1;
 	if (var->xres > var->xres_virtual)
 		var->xres_virtual = var->xres;
 	if (var->yres > var->yres_virtual)
 		var->yres_virtual = var->yres;
-	if (var->bits_per_pixel <= 1)
-		var->bits_per_pixel = 1;
-	else if (var->bits_per_pixel <= 8)
-		var->bits_per_pixel = 8;
-	else if (var->bits_per_pixel <= 16)
-		var->bits_per_pixel = 16;
-	else if (var->bits_per_pixel <= 24)
-		var->bits_per_pixel = 24;
-	else if (var->bits_per_pixel <= 32)
-		var->bits_per_pixel = 32;
-	else
+	
+	if (var->bits_per_pixel != 24) 
 		return -EINVAL;
 
 	if (var->xres_virtual < var->xoffset + var->xres)
@@ -173,65 +178,17 @@ static int tafi_fb_check_var(struct fb_var_screeninfo *var,
 	if (line_length * var->yres_virtual > videomemorysize)
 		return -ENOMEM;
 
-	/*
-	 * Now that we checked it we alter var. The reason being is that the video
-	 * mode passed in might not work but slight changes to it might make it 
-	 * work. This way we let the user know what is acceptable.
-	 */
-	switch (var->bits_per_pixel) {
-	case 1:
-	case 8:
-		var->red.offset = 0;
-		var->red.length = 8;
-		var->green.offset = 0;
-		var->green.length = 8;
-		var->blue.offset = 0;
-		var->blue.length = 8;
-		var->transp.offset = 0;
-		var->transp.length = 0;
-		break;
-	case 16:		/* RGBA 5551 */
-		if (var->transp.length) {
-			var->red.offset = 0;
-			var->red.length = 5;
-			var->green.offset = 5;
-			var->green.length = 5;
-			var->blue.offset = 10;
-			var->blue.length = 5;
-			var->transp.offset = 15;
-			var->transp.length = 1;
-		} else {	/* RGB 565 */
-			var->red.offset = 0;
-			var->red.length = 5;
-			var->green.offset = 5;
-			var->green.length = 6;
-			var->blue.offset = 11;
-			var->blue.length = 5;
-			var->transp.offset = 0;
-			var->transp.length = 0;
-		}
-		break;
-	case 24:		/* RGB 888 */
-		var->red.offset = 0;
-		var->red.length = 8;
-		var->green.offset = 8;
-		var->green.length = 8;
-		var->blue.offset = 16;
-		var->blue.length = 8;
-		var->transp.offset = 0;
-		var->transp.length = 0;
-		break;
-	case 32:		/* RGBA 8888 */
-		var->red.offset = 0;
-		var->red.length = 8;
-		var->green.offset = 8;
-		var->green.length = 8;
-		var->blue.offset = 16;
-		var->blue.length = 8;
-		var->transp.offset = 24;
-		var->transp.length = 8;
-		break;
-	}
+	// RGB 888
+	var->red.offset = 8;
+	var->red.length = 8;
+	var->green.offset = 0;
+	var->green.length = 8;
+	var->blue.offset = 16;
+	var->blue.length = 8;
+	// No transparency
+	var->transp.offset = 0;
+	var->transp.length = 0;
+
 	var->red.msb_right = 0;
 	var->green.msb_right = 0;
 	var->blue.msb_right = 0;
@@ -251,106 +208,41 @@ static int tafi_fb_set_par(struct fb_info *info)
 	return 0;
 }
 
-    /*
-     *  Set a single color register. The values supplied are already
-     *  rounded down to the hardware's capabilities (according to the
-     *  entries in the var structure). Return != 0 for invalid regno.
-     */
-
-static int tafi_fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
-			 u_int transp, struct fb_info *info)
-{
-	if (regno >= 256)	/* no. of hw registers */
+/*
+ *  Set a single color register. The values supplied are already
+ *  rounded down to the hardware's capabilities (according to the
+ *  entries in the var structure). Return != 0 for invalid regno.
+*/
+static int tafi_fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue, u_int transp, struct fb_info *info) {
+	
+	if (regno >= 16)	/* no. of hw registers */
 		return 1;
-	/*
-	 * Program hardware... do anything you want with transp
-	 */
 
-	/* grayscale works only partially under directcolor */
-	if (info->var.grayscale) {
-		/* grayscale = 0.30*R + 0.59*G + 0.11*B */
-		red = green = blue =
-		    (red * 77 + green * 151 + blue * 28) >> 8;
-	}
+	if (info->fix.visual != FB_VISUAL_TRUECOLOR)
+		return 1;
 
-	/* Directcolor:
-	 *   var->{color}.offset contains start of bitfield
-	 *   var->{color}.length contains length of bitfield
-	 *   {hardwarespecific} contains width of RAMDAC
-	 *   cmap[X] is programmed to (X << red.offset) | (X << green.offset) | (X << blue.offset)
-	 *   RAMDAC[X] is programmed to (red, green, blue)
-	 *
-	 * Pseudocolor:
-	 *    var->{color}.offset is 0 unless the palette index takes less than
-	 *                        bits_per_pixel bits and is stored in the upper
-	 *                        bits of the pixel value
-	 *    var->{color}.length is set so that 1 << length is the number of available
-	 *                        palette entries
-	 *    cmap is not used
-	 *    RAMDAC[X] is programmed to (red, green, blue)
-	 *
-	 * Truecolor:
-	 *    does not use DAC. Usually 3 are present.
-	 *    var->{color}.offset contains start of bitfield
-	 *    var->{color}.length contains length of bitfield
-	 *    cmap is programmed to (red << red.offset) | (green << green.offset) |
-	 *                      (blue << blue.offset) | (transp << transp.offset)
-	 *    RAMDAC does not exist
-	 */
-#define CNVT_TOHW(val,width) ((((val)<<(width))+0x7FFF-(val))>>16)
-	switch (info->fix.visual) {
-	case FB_VISUAL_TRUECOLOR:
-	case FB_VISUAL_PSEUDOCOLOR:
-		red = CNVT_TOHW(red, info->var.red.length);
-		green = CNVT_TOHW(green, info->var.green.length);
-		blue = CNVT_TOHW(blue, info->var.blue.length);
-		transp = CNVT_TOHW(transp, info->var.transp.length);
-		break;
-	case FB_VISUAL_DIRECTCOLOR:
-		red = CNVT_TOHW(red, 8);	/* expect 8 bit DAC */
-		green = CNVT_TOHW(green, 8);
-		blue = CNVT_TOHW(blue, 8);
-		/* hey, there is bug in transp handling... */
-		transp = CNVT_TOHW(transp, 8);
-		break;
-	}
-#undef CNVT_TOHW
-	/* Truecolor has hardware independent palette */
-	if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
-		u32 v;
+	u32 v;
 
-		if (regno >= 16)
-			return 1;
+	red = (red >> 1) & 0x80;
+	green = (green >> 1) & 0x80;
+	blue = (blue >> 1) & 0x80;
 
-		v = (red << info->var.red.offset) |
-		    (green << info->var.green.offset) |
-		    (blue << info->var.blue.offset) |
-		    (transp << info->var.transp.offset);
-		switch (info->var.bits_per_pixel) {
-		case 8:
-			break;
-		case 16:
-			((u32 *) (info->pseudo_palette))[regno] = v;
-			break;
-		case 24:
-		case 32:
-			((u32 *) (info->pseudo_palette))[regno] = v;
-			break;
-		}
-		return 0;
-	}
+	v = (red << info->var.red.offset) |
+		(green << info->var.green.offset) |
+		(blue << info->var.blue.offset) |
+		(transp << info->var.transp.offset);
+
+	((u32 *) (info->pseudo_palette))[regno] = v;
+
 	return 0;
 }
 
-    /*
-     *  Pan or Wrap the Display
-     *
-     *  This call looks only at xoffset, yoffset and the FB_VMODE_YWRAP flag
-     */
-
-static int tafi_fb_pan_display(struct fb_var_screeninfo *var,
-			   struct fb_info *info)
-{
+/*
+ *  Pan or Wrap the Display
+ *
+ *  This call looks only at xoffset, yoffset and the FB_VMODE_YWRAP flag
+ */
+static int tafi_fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info) {
 	if (var->vmode & FB_VMODE_YWRAP) {
 		if (var->yoffset >= info->var.yres_virtual ||
 		    var->xoffset)
@@ -369,54 +261,18 @@ static int tafi_fb_pan_display(struct fb_var_screeninfo *var,
 	return 0;
 }
 
-    /*
-     *  Most drivers don't need their own mmap function 
-     */
-
-static int tafi_fb_mmap(struct fb_info *info,
-		    struct vm_area_struct *vma)
-{
+/*
+ *  Most drivers don't need their own mmap function 
+ */
+static int tafi_fb_mmap(struct fb_info *info, struct vm_area_struct *vma) {
 	return remap_vmalloc_range(vma, (void *)info->fix.smem_start, vma->vm_pgoff);
 }
 
-#ifndef MODULE
 /*
- * The virtual framebuffer driver is only enabled if explicitly
- * requested by passing 'video=tafi_fb:' (or any actual options).
+ *  Initialisation
  */
-static int __init tafi_fb_setup(char *options)
-{
-	char *this_opt;
 
-	tafi_fb_enable = 0;
-
-	if (!options)
-		return 1;
-
-	tafi_fb_enable = 1;
-
-	if (!*options)
-		return 1;
-
-	while ((this_opt = strsep(&options, ",")) != NULL) {
-		if (!*this_opt)
-			continue;
-		/* Test disable for backwards compatibility */
-		if (!strcmp(this_opt, "disable"))
-			tafi_fb_enable = 0;
-		else
-			mode_option = this_opt;
-	}
-	return 1;
-}
-#endif  /*  MODULE  */
-
-    /*
-     *  Initialisation
-     */
-
-static int tafi_fb_probe(struct platform_device *dev)
-{
+static int tafi_fb_probe(struct platform_device *dev) {
 	struct fb_info *info;
 	unsigned int size = PAGE_ALIGN(videomemorysize);
 	int retval = -ENOMEM;
@@ -433,13 +289,9 @@ static int tafi_fb_probe(struct platform_device *dev)
 
 	info->screen_base = (char __iomem *)videomemory;
 	info->fbops = &tafi_fb_ops;
+	info->mode = &tafi_fb_default;
 
-	if (!fb_find_mode(&info->var, info, mode_option,
-			  NULL, 0, &tafi_fb_default, 8)){
-		fb_err(info, "Unable to find usable video mode.\n");
-		retval = -EINVAL;
-		goto err1;
-	}
+	info->var = tafi_fb_var;
 
 	tafi_fb_fix.smem_start = (unsigned long) videomemory;
 	tafi_fb_fix.smem_len = videomemorysize;
@@ -469,8 +321,7 @@ err:
 	return retval;
 }
 
-static int tafi_fb_remove(struct platform_device *dev)
-{
+static int tafi_fb_remove(struct platform_device *dev) {
 	struct fb_info *info = platform_get_drvdata(dev);
 
 	if (info) {
@@ -490,22 +341,8 @@ static struct platform_driver tafi_fb_driver = {
 	},
 };
 
-static struct platform_device *tafi_fb_device;
-
-static int __init tafi_fb_init(void)
-{
+int tafi_fb_init(void) {
 	int ret = 0;
-
-#ifndef MODULE
-	char *option = NULL;
-
-	if (fb_get_options("tafi_fb", &option))
-		return -ENODEV;
-	tafi_fb_setup(option);
-#endif
-
-	if (!tafi_fb_enable)
-		return -ENXIO;
 
 	ret = platform_driver_register(&tafi_fb_driver);
 
@@ -526,16 +363,7 @@ static int __init tafi_fb_init(void)
 	return ret;
 }
 
-module_init(tafi_fb_init);
-
-#ifdef MODULE
-static void __exit tafi_fb_exit(void)
-{
+void tafi_fb_exit(void) {
 	platform_device_unregister(tafi_fb_device);
 	platform_driver_unregister(&tafi_fb_driver);
 }
-
-module_exit(tafi_fb_exit);
-
-MODULE_LICENSE("GPL");
-#endif				/* MODULE */
