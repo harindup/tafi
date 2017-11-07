@@ -129,6 +129,7 @@ struct task_struct *tafi_task;
  * Unsafe to call without bounds checking.
  */
 void tafi_set_color_data(void *buf, size_t len, loff_t offset) {
+    printk(KERN_INFO TAFI_LOG_PREFIX"setting color data...");
     mutex_lock(&tafi_color_data_mutex);
     memcpy(tafi_color_data_buf+offset, buf, len);
     tafi_color_data_dirty = true;
@@ -183,14 +184,14 @@ static int tafi_thread(void *data) {
 
     // check if the thread should stop
     while (!kthread_should_stop()) {
-        if (tafi_cpy_data_and_reset_if_dirty(buf)) {
+        //if (tafi_cpy_data_and_reset_if_dirty(buf)) {
             tafi_frame_begin();
             //tafi_data_write(&reset, 1);
             //tafi_data_write(buf+(i*TAFI_SECTOR_BUF_LEN), TAFI_SECTOR_BUF_LEN);
             tafi_data_write(buf, TAFI_DATA_BUF_LEN);
             //tafi_data_write(&term, 1);
             tafi_frame_end();
-        }
+        //}
         //i++;
         //i = i%150;
         usleep_range(92600, 92600);
@@ -305,7 +306,12 @@ static int __init tafi_init(void) {
  */
 static void __exit tafi_exit(void) {
     printk(KERN_INFO TAFI_LOG_PREFIX"stopping...");
+
     // stuff to do
+    // stop framebuffer device
+    tafi_fb_exit();
+
+    // stop character device
     tafi_chardev_exit();
 
     // stop thread

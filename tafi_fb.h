@@ -10,9 +10,17 @@
  */
 
 #include <linux/fb.h>
+// Required for the copy from user function
+#include <asm/uaccess.h>
 
 #ifndef TAFI_FB
 #define TAFI_FB
+
+#define TAFI_FB_XRES 80
+#define TAFI_FB_YRES 80
+
+// bits per pixel
+#define TAFI_FB_BPP 24
 
 int tafi_fb_init(void);
 void tafi_fb_exit(void);

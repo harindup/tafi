@@ -22,12 +22,15 @@
 #include <linux/string.h>
 #include <linux/mm.h>
 #include <linux/vmalloc.h>
+#include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
 
 #include "tafi_ioctl.h"
 #include "tafi_fb.h"
+#include "tafi_fb_lut.h"
+#include "tafi_common.h"
     /*
      *  RAM we reserve for the frame buffer. This defines the maximum screen
      *  size
@@ -35,16 +38,18 @@
      *  The default can be overridden if the driver is compiled as a module
      */
 
-#define VIDEOMEMSIZE	(1024*1024)	/* 1 MB */
+#define VIDEOMEMSIZE	(12*1024)	/* 12 KB */
 
 static void *videomemory;
 static u_long videomemorysize = VIDEOMEMSIZE;
 
+static unsigned char square_buf[TAFI_FB_XRES][TAFI_FB_YRES][3];
+
 static struct platform_device *tafi_fb_device;
 
 static const struct fb_videomode tafi_fb_default = {
-	.xres =		40,
-	.yres =		40,
+	.xres =		TAFI_FB_XRES,
+	.yres =		TAFI_FB_YRES,
 	.left_margin =	0,
 	.right_margin =	0,
 	.upper_margin =	0,
@@ -53,11 +58,11 @@ static const struct fb_videomode tafi_fb_default = {
 };
 
 static struct fb_var_screeninfo tafi_fb_var = {
-	.xres =		40,
-	.yres =		40,
-	.xres_virtual = 40,
-	.yres_virtual = 40,
-	.bits_per_pixel = 24,
+	.xres =		TAFI_FB_XRES,
+	.yres =		TAFI_FB_YRES,
+	.xres_virtual = TAFI_FB_XRES,
+	.yres_virtual = TAFI_FB_YRES,
+	.bits_per_pixel = TAFI_FB_BPP,
 	.nonstd = 1,
 	.red =  {
 		.offset = 8,
@@ -65,12 +70,12 @@ static struct fb_var_screeninfo tafi_fb_var = {
 		.msb_right = 0,
 	},
 	.green = {
-		.offset = 1,
+		.offset = 16,
 		.length = 8,
 		.msb_right = 0,
 	},
 	.blue = {
-		.offset = 16,
+		.offset = 0,
 		.length = 8,
 		.msb_right = 0,
 	},
@@ -91,19 +96,18 @@ static struct fb_fix_screeninfo tafi_fb_fix = {
 	.accel =	FB_ACCEL_NONE,
 };
 
-static int tafi_fb_check_var(struct fb_var_screeninfo *var,
-			 struct fb_info *info);
+static int tafi_fb_write(struct fb_info *info, const char __user *buf, size_t count, loff_t *ppos);
+static int tafi_fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info);
 static int tafi_fb_set_par(struct fb_info *info);
-static int tafi_fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
-			 u_int transp, struct fb_info *info);
-static int tafi_fb_pan_display(struct fb_var_screeninfo *var,
-			   struct fb_info *info);
-static int tafi_fb_mmap(struct fb_info *info,
-		    struct vm_area_struct *vma);
+static int tafi_fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue, u_int transp, struct fb_info *info);
+static int tafi_fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info);
+static int tafi_fb_mmap(struct fb_info *info, struct vm_area_struct *vma);
+
+static void tafi_fb_copy_to_device(void);
 
 static struct fb_ops tafi_fb_ops = {
 	.fb_read        = fb_sys_read,
-	.fb_write       = fb_sys_write,
+	.fb_write       = tafi_fb_write,
 //	.fb_check_var	= tafi_fb_check_var,
 	.fb_set_par	= tafi_fb_set_par,
 	.fb_setcolreg	= tafi_fb_setcolreg,
@@ -114,12 +118,18 @@ static struct fb_ops tafi_fb_ops = {
 	.fb_mmap	= tafi_fb_mmap,
 };
 
+// static void tafi_fb_deferred_io(struct fb_info *info, struct list_head *pagelist);
+
+// static struct fb_deferred_io tafi_fb_defio = {
+// 	.delay		= HZ,
+// 	.deferred_io	= tafi_fb_deferred_io,
+// };
+
 /*
  *  Internal routines
  */
 
-static u_long get_line_length(int xres_virtual, int bpp)
-{
+static u_long get_line_length(int xres_virtual, int bpp) {
 	u_long length;
 
 	length = xres_virtual * bpp;
@@ -136,73 +146,72 @@ static u_long get_line_length(int xres_virtual, int bpp)
      *  data from it to check this var. 
      */
 
-static int tafi_fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info) {
-	u_long line_length;
+// static int tafi_fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info) {
+// 	u_long line_length;
 
-	/*
-	 *  FB_VMODE_CONUPDATE and FB_VMODE_SMOOTH_XPAN are equal!
-	 *  as FB_VMODE_SMOOTH_XPAN is only used internally
-	 */
+// 	/*
+// 	 *  FB_VMODE_CONUPDATE and FB_VMODE_SMOOTH_XPAN are equal!
+// 	 *  as FB_VMODE_SMOOTH_XPAN is only used internally
+// 	 */
 
-	if (var->vmode & FB_VMODE_CONUPDATE) {
-		var->vmode |= FB_VMODE_YWRAP;
-		var->xoffset = info->var.xoffset;
-		var->yoffset = info->var.yoffset;
-	}
+// 	if (var->vmode & FB_VMODE_CONUPDATE) {
+// 		var->vmode |= FB_VMODE_YWRAP;
+// 		var->xoffset = info->var.xoffset;
+// 		var->yoffset = info->var.yoffset;
+// 	}
 
-	/*
-	 *  Some very basic checks
-	 */
-	if (var->xres != 40)
-		var->xres = 40;
-	if (var->yres != 40)
-		var->yres = 1;
-	if (var->xres > var->xres_virtual)
-		var->xres_virtual = var->xres;
-	if (var->yres > var->yres_virtual)
-		var->yres_virtual = var->yres;
+// 	/*
+// 	 *  Some very basic checks
+// 	 */
+// 	if (var->xres != 80)
+// 		var->xres = 80;
+// 	if (var->yres != 80)
+// 		var->yres = 80;
+// 	if (var->xres > var->xres_virtual)
+// 		var->xres_virtual = var->xres;
+// 	if (var->yres > var->yres_virtual)
+// 		var->yres_virtual = var->yres;
 	
-	if (var->bits_per_pixel != 24) 
-		return -EINVAL;
+// 	if (var->bits_per_pixel != 24) 
+// 		return -EINVAL;
 
-	if (var->xres_virtual < var->xoffset + var->xres)
-		var->xres_virtual = var->xoffset + var->xres;
-	if (var->yres_virtual < var->yoffset + var->yres)
-		var->yres_virtual = var->yoffset + var->yres;
+// 	if (var->xres_virtual < var->xoffset + var->xres)
+// 		var->xres_virtual = var->xoffset + var->xres;
+// 	if (var->yres_virtual < var->yoffset + var->yres)
+// 		var->yres_virtual = var->yoffset + var->yres;
 
-	/*
-	 *  Memory limit
-	 */
-	line_length =
-	    get_line_length(var->xres_virtual, var->bits_per_pixel);
-	if (line_length * var->yres_virtual > videomemorysize)
-		return -ENOMEM;
+// 	/*
+// 	 *  Memory limit
+// 	 */
+// 	line_length =
+// 	    get_line_length(var->xres_virtual, var->bits_per_pixel);
+// 	if (line_length * var->yres_virtual > videomemorysize)
+// 		return -ENOMEM;
 
-	// RGB 888
-	var->red.offset = 8;
-	var->red.length = 8;
-	var->green.offset = 0;
-	var->green.length = 8;
-	var->blue.offset = 16;
-	var->blue.length = 8;
-	// No transparency
-	var->transp.offset = 0;
-	var->transp.length = 0;
+// 	// RGB 888
+// 	var->red.offset = 8;
+// 	var->red.length = 8;
+// 	var->green.offset = 0;
+// 	var->green.length = 8;
+// 	var->blue.offset = 16;
+// 	var->blue.length = 8;
+// 	// No transparency
+// 	var->transp.offset = 0;
+// 	var->transp.length = 0;
 
-	var->red.msb_right = 0;
-	var->green.msb_right = 0;
-	var->blue.msb_right = 0;
-	var->transp.msb_right = 0;
+// 	var->red.msb_right = 0;
+// 	var->green.msb_right = 0;
+// 	var->blue.msb_right = 0;
+// 	var->transp.msb_right = 0;
 
-	return 0;
-}
+// 	return 0;
+// }
 
 /* This routine actually sets the video mode. It's in here where we
  * the hardware state info->par and fix which can be affected by the 
  * change in par. For this driver it doesn't do much. 
  */
-static int tafi_fb_set_par(struct fb_info *info)
-{
+static int tafi_fb_set_par(struct fb_info *info) {
 	info->fix.line_length = get_line_length(info->var.xres_virtual,
 						info->var.bits_per_pixel);
 	return 0;
@@ -237,11 +246,6 @@ static int tafi_fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue, u_
 	return 0;
 }
 
-/*
- *  Pan or Wrap the Display
- *
- *  This call looks only at xoffset, yoffset and the FB_VMODE_YWRAP flag
- */
 static int tafi_fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info) {
 	if (var->vmode & FB_VMODE_YWRAP) {
 		if (var->yoffset >= info->var.yres_virtual ||
@@ -259,6 +263,51 @@ static int tafi_fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *in
 	else
 		info->var.vmode &= ~FB_VMODE_YWRAP;
 	return 0;
+}
+
+#define CONV_TO_HW(val) ((val >> 1) | 0x80)
+
+static void tafi_fb_copy_to_device(void) {
+	void *data;
+	unsigned int p;
+	unsigned int x;
+	unsigned int y;
+	unsigned int s;
+	unsigned int l;
+	unsigned int i;
+
+	printk(KERN_INFO TAFI_LOG_PREFIX"defio triggered.");
+
+	data = kmalloc(TAFI_DATA_BUF_LEN, GFP_KERNEL);
+	if (data == NULL) {
+		printk(KERN_INFO TAFI_LOG_PREFIX"cannot reserve memory for FB ioctl");
+		return;
+	}
+
+	copy_from_user(data, videomemory, TAFI_FB_XRES * TAFI_FB_YRES * 3);
+
+	for (s = 0; s < TAFI_SECTOR_COUNT; s++) {
+		for (l = 0; l < TAFI_SECTOR_LED_COUNT; l++) {
+			x = TAFI_FB_DEV_LUT[s][l][0];
+			y = TAFI_FB_DEV_LUT[s][l][1];
+			for (i = 0; i < TAFI_LED_COLOR_FIELD_COUNT; i++) {
+				p = s * TAFI_SECTOR_LED_COUNT * TAFI_LED_COLOR_FIELD_COUNT + l * TAFI_LED_COLOR_FIELD_COUNT + i;
+				*((unsigned char *)(data+p)) = square_buf[x][y][i];
+			}
+		}
+	}
+
+	printk(KERN_INFO TAFI_LOG_PREFIX"defio triggered 2.");
+	tafi_set_color_data(data, TAFI_DATA_BUF_LEN, (loff_t *) 0);
+	printk(KERN_INFO TAFI_LOG_PREFIX"defio triggered 3.");
+	kfree(data);
+}
+
+static ssize_t tafi_fb_write(struct fb_info *info, const char __user *buf, size_t count, loff_t *ppos) {
+	ssize_t ret;
+	ret = fb_sys_write(info, buf, count, ppos);
+	tafi_fb_copy_to_device();
+	return ret;
 }
 
 /*
@@ -300,6 +349,9 @@ static int tafi_fb_probe(struct platform_device *dev) {
 	info->par = NULL;
 	info->flags = FBINFO_FLAG_DEFAULT;
 
+	// info->fbdefio = &tafi_fb_defio;
+	// fb_deferred_io_init(info);
+
 	retval = fb_alloc_cmap(&info->cmap, 256, 0);
 	if (retval < 0)
 		goto err1;
@@ -314,6 +366,7 @@ static int tafi_fb_probe(struct platform_device *dev) {
 	return 0;
 err2:
 	fb_dealloc_cmap(&info->cmap);
+	fb_deferred_io_cleanup(info);
 err1:
 	framebuffer_release(info);
 err:
@@ -325,6 +378,7 @@ static int tafi_fb_remove(struct platform_device *dev) {
 	struct fb_info *info = platform_get_drvdata(dev);
 
 	if (info) {
+		// fb_deferred_io_cleanup(info);
 		unregister_framebuffer(info);
 		vfree(videomemory);
 		fb_dealloc_cmap(&info->cmap);
