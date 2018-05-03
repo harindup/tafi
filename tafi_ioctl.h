@@ -20,10 +20,11 @@
 #define TAFI_SECTOR_BUF_LEN TAFI_SECTOR_LED_COUNT * TAFI_LED_COLOR_FIELD_COUNT
 #define TAFI_DATA_BUF_LEN TAFI_SECTOR_COUNT * TAFI_SECTOR_BUF_LEN
 
-static inline bool tafi_check_bounds(size_t len, loff_t off) {
-    if (len < 0 || len > TAFI_DATA_BUF_LEN) return false;
-    if (off < 0 || off > (TAFI_DATA_BUF_LEN - 1)) return false;
-    if (len + off > TAFI_DATA_BUF_LEN) return false;
+static inline size_t tafi_check_bounds(size_t len, loff_t off) {
+    if (len < 0) return -1;
+    if (off < 0 || off > (TAFI_DATA_BUF_LEN - 1)) return -1;
+    if (len + off > TAFI_DATA_BUF_LEN) return (size_t) (TAFI_DATA_BUF_LEN - off);
+    return len;
 }
 
 void tafi_get_color_data(void * buf, size_t len, loff_t offset);

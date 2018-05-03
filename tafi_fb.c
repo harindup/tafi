@@ -26,6 +26,7 @@
 #include <linux/delay.h>
 #include <linux/interrupt.h>
 #include <linux/platform_device.h>
+#include <asm/page.h>
 
 #include "tafi_ioctl.h"
 #include "tafi_fb.h"
@@ -38,10 +39,12 @@
      *  The default can be overridden if the driver is compiled as a module
      */
 
-#define VIDEOMEMSIZE	(12*1024)	/* 12 KB */
+#define VIDEOMEMSIZE	(20*1024)	/* 12 KB */
 
 static void *videomemory;
 static u_long videomemorysize = VIDEOMEMSIZE;
+
+static unsigned char shadow_mem[VIDEOMEMSIZE];
 
 static unsigned char square_buf[TAFI_FB_XRES][TAFI_FB_YRES][3];
 
@@ -65,17 +68,17 @@ static struct fb_var_screeninfo tafi_fb_var = {
 	.bits_per_pixel = TAFI_FB_BPP,
 	.nonstd = 1,
 	.red =  {
-		.offset = 8,
+		.offset = 0,
 		.length = 8,
 		.msb_right = 0,
 	},
 	.green = {
-		.offset = 16,
+		.offset = 8,
 		.length = 8,
 		.msb_right = 0,
 	},
 	.blue = {
-		.offset = 0,
+		.offset = 16,
 		.length = 8,
 		.msb_right = 0,
 	},
@@ -118,12 +121,12 @@ static struct fb_ops tafi_fb_ops = {
 	.fb_mmap	= tafi_fb_mmap,
 };
 
-// static void tafi_fb_deferred_io(struct fb_info *info, struct list_head *pagelist);
+static void tafi_fb_deferred_io(struct fb_info *info, struct list_head *pagelist);
 
-// static struct fb_deferred_io tafi_fb_defio = {
-// 	.delay		= HZ,
-// 	.deferred_io	= tafi_fb_deferred_io,
-// };
+static struct fb_deferred_io tafi_fb_defio = {
+	.delay		= HZ,
+	.deferred_io	= tafi_fb_deferred_io,
+};
 
 /*
  *  Internal routines
@@ -232,9 +235,9 @@ static int tafi_fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue, u_
 
 	u32 v;
 
-	red = (red >> 1) & 0x80;
-	green = (green >> 1) & 0x80;
-	blue = (blue >> 1) & 0x80;
+	red = (red >> 1);
+	green = (green >> 1);
+	blue = (blue >> 1);
 
 	v = (red << info->var.red.offset) |
 		(green << info->var.green.offset) |
@@ -265,8 +268,6 @@ static int tafi_fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *in
 	return 0;
 }
 
-#define CONV_TO_HW(val) ((val >> 1) | 0x80)
-
 static void tafi_fb_copy_to_device(void) {
 	void *data;
 	unsigned int p;
@@ -276,7 +277,7 @@ static void tafi_fb_copy_to_device(void) {
 	unsigned int l;
 	unsigned int i;
 
-	printk(KERN_INFO TAFI_LOG_PREFIX"defio triggered.");
+	printk(KERN_INFO TAFI_LOG_PREFIX"copy data.");
 
 	data = kmalloc(TAFI_DATA_BUF_LEN, GFP_KERNEL);
 	if (data == NULL) {
@@ -284,7 +285,7 @@ static void tafi_fb_copy_to_device(void) {
 		return;
 	}
 
-	copy_from_user(data, videomemory, TAFI_FB_XRES * TAFI_FB_YRES * 3);
+	memcpy(square_buf, shadow_mem, TAFI_FB_XRES * TAFI_FB_YRES * 3);
 
 	for (s = 0; s < TAFI_SECTOR_COUNT; s++) {
 		for (l = 0; l < TAFI_SECTOR_LED_COUNT; l++) {
@@ -292,20 +293,42 @@ static void tafi_fb_copy_to_device(void) {
 			y = TAFI_FB_DEV_LUT[s][l][1];
 			for (i = 0; i < TAFI_LED_COLOR_FIELD_COUNT; i++) {
 				p = s * TAFI_SECTOR_LED_COUNT * TAFI_LED_COLOR_FIELD_COUNT + l * TAFI_LED_COLOR_FIELD_COUNT + i;
-				*((unsigned char *)(data+p)) = square_buf[x][y][i];
+				*((unsigned char *)(data+p)) = (TAFI_FB_LED_BRIGHTNESS_LUT[square_buf[x][y][(i+2)%3]][l] >> 1) | 0x80;
 			}
 		}
 	}
 
-	printk(KERN_INFO TAFI_LOG_PREFIX"defio triggered 2.");
+	printk(KERN_INFO TAFI_LOG_PREFIX"copy data 2.");
 	tafi_set_color_data(data, TAFI_DATA_BUF_LEN, (loff_t *) 0);
-	printk(KERN_INFO TAFI_LOG_PREFIX"defio triggered 3.");
+	printk(KERN_INFO TAFI_LOG_PREFIX"copy data 3.");
 	kfree(data);
+}
+
+static void tafi_fb_copy_to_shadow(const unsigned char *vfb_mem, uint32_t byte_offset, uint32_t byte_width) {
+	unsigned char *addr0 = (unsigned char *)(vfb_mem + byte_offset);
+	unsigned char *addr1 = (unsigned char *)(shadow_mem + byte_offset);
+	int j = byte_width;
+	uint32_t k; 
+	while (j--) {
+		*(addr1 + j) = *(addr0 + j);
+	}
+}
+
+static void tafi_fb_deferred_io(struct fb_info *info, struct list_head *pagelist) {
+	printk(KERN_INFO TAFI_LOG_PREFIX"defio triggered");
+	struct page *cur;
+	struct fb_deferred_io *fbdefio = info->fbdefio;
+	// list_for_each_entry(cur, &fbdefio->pagelist, lru) {
+	// 	tafi_fb_copy_to_shadow((unsigned char *) info->fix.smem_start, cur->index << PAGE_SHIFT, PAGE_SIZE);
+	// }
+	tafi_fb_copy_to_shadow((unsigned char *) info->fix.smem_start, 0, TAFI_FB_XRES*TAFI_FB_YRES*3);
+	tafi_fb_copy_to_device();
 }
 
 static ssize_t tafi_fb_write(struct fb_info *info, const char __user *buf, size_t count, loff_t *ppos) {
 	ssize_t ret;
 	ret = fb_sys_write(info, buf, count, ppos);
+	tafi_fb_copy_to_shadow((unsigned char *) info->fix.smem_start, 0, TAFI_FB_XRES*TAFI_FB_YRES*3);
 	tafi_fb_copy_to_device();
 	return ret;
 }
@@ -349,8 +372,8 @@ static int tafi_fb_probe(struct platform_device *dev) {
 	info->par = NULL;
 	info->flags = FBINFO_FLAG_DEFAULT;
 
-	// info->fbdefio = &tafi_fb_defio;
-	// fb_deferred_io_init(info);
+	info->fbdefio = &tafi_fb_defio;
+	fb_deferred_io_init(info);
 
 	retval = fb_alloc_cmap(&info->cmap, 256, 0);
 	if (retval < 0)
@@ -378,7 +401,7 @@ static int tafi_fb_remove(struct platform_device *dev) {
 	struct fb_info *info = platform_get_drvdata(dev);
 
 	if (info) {
-		// fb_deferred_io_cleanup(info);
+		fb_deferred_io_cleanup(info);
 		unregister_framebuffer(info);
 		vfree(videomemory);
 		fb_dealloc_cmap(&info->cmap);

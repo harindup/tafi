@@ -113,7 +113,10 @@ static ssize_t tafi_chardev_read(struct file *filep, char *buf, size_t len, loff
     void *tmp_buf;
     int error_count = 0;
 
-    if (tafi_check_bounds(len, *offset)) {
+    printk(KERN_INFO TAFI_LOG_PREFIX"requested %d characters to user space at offset %d", len, *offset);
+
+    len = tafi_check_bounds(len, *offset);
+    if (len < 0) {
         return -EFAULT;
     }
 
@@ -128,14 +131,20 @@ static ssize_t tafi_chardev_read(struct file *filep, char *buf, size_t len, loff
     // copy_to_user has the format ( * to, *from, size) and returns 0 on success
     error_count = copy_to_user(buf, tmp_buf, len);
 
+    kfree(tmp_buf);
+
     if (error_count == 0) {
         // if true then have success
         printk(KERN_INFO TAFI_LOG_PREFIX"read data");
     }
     else {
-        printk(KERN_INFO TAFI_LOG_PREFIX"failed to send %d characters to users pace", error_count);
+        printk(KERN_INFO TAFI_LOG_PREFIX"failed to send %d characters to user space", error_count);
         return -EFAULT;
     }
+
+    printk(KERN_INFO TAFI_LOG_PREFIX"sent %d characters to user space at offset %d", len, *offset);
+    
+    return len;
 }
  
 /**
@@ -143,7 +152,8 @@ static ssize_t tafi_chardev_read(struct file *filep, char *buf, size_t len, loff
  */
 static ssize_t tafi_chardev_write(struct file *filep, const char *buf, size_t len, loff_t *offset) {
    
-    if (tafi_check_bounds(len, *offset)) {
+    len = tafi_check_bounds(len, *offset);
+    if (len < 0) {
         return -EFAULT;
     }
 

@@ -144,11 +144,11 @@ static bool tafi_cpy_data_and_reset_if_dirty(void *buf) {
     bool ret = false;
 
     mutex_lock(&tafi_color_data_mutex);
-    if (tafi_color_data_dirty) {
-        memcpy(buf, tafi_color_data_buf, TAFI_DATA_BUF_LEN);
-        tafi_color_data_dirty = false;
-        ret = true;
-    }
+    //if (tafi_color_data_dirty) {
+    memcpy(buf, tafi_color_data_buf, TAFI_DATA_BUF_LEN);
+        //tafi_color_data_dirty = false;
+    ret = true;
+    //}
     mutex_unlock(&tafi_color_data_mutex);
     return ret;
 }
@@ -184,14 +184,14 @@ static int tafi_thread(void *data) {
 
     // check if the thread should stop
     while (!kthread_should_stop()) {
-        //if (tafi_cpy_data_and_reset_if_dirty(buf)) {
+        if (tafi_cpy_data_and_reset_if_dirty(buf)) {
             tafi_frame_begin();
             //tafi_data_write(&reset, 1);
             //tafi_data_write(buf+(i*TAFI_SECTOR_BUF_LEN), TAFI_SECTOR_BUF_LEN);
             tafi_data_write(buf, TAFI_DATA_BUF_LEN);
             //tafi_data_write(&term, 1);
             tafi_frame_end();
-        //}
+        }
         //i++;
         //i = i%150;
         usleep_range(92600, 92600);
